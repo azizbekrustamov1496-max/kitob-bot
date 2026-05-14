@@ -2,15 +2,15 @@ import os
 import json
 import logging
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Updater, CommandHandler, MessageHandler,
-    CallbackQueryHandler, Filters, CallbackContext
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters
 )
 
 # ===================== SOZLAMALAR =====================
 BOT_TOKEN = "8636477180:AAGNTGfnkST5uM4SdUuzNV3NCZcYIigkqk4"
-GURUH_ID = -10039667095  # Guruh ID (raqam)
+GURUH_ID = -1003966708795
 GURUH_LINK = "https://t.me/pdf_audio_kitobz"
 ADMIN_ID = 1217116376
 
@@ -24,7 +24,6 @@ KITOBLAR_FAYL = "kitoblar.json"
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# ===================== YORDAMCHI =====================
 def kitoblar_yukla():
     if os.path.exists(KITOBLAR_FAYL):
         with open(KITOBLAR_FAYL, "r", encoding="utf-8") as f:
@@ -38,84 +37,29 @@ def kitoblar_saqlа(kitoblar):
 def admin_mi(user_id):
     return user_id == ADMIN_ID
 
-def guruh_azosimi(bot, user_id):
+async def guruh_azosimi(bot, user_id):
     try:
-        member = bot.get_chat_member(GURUH_ID, user_id)
-        return member.status in [
-            ChatMember.MEMBER,
-            ChatMember.ADMINISTRATOR,
-            ChatMember.CREATOR
-        ]
+        member = await bot.get_chat_member(GURUH_ID, user_id)
+        return member.status in ["member", "administrator", "creator"]
     except:
         return False
 
-def guruhga_qoshiling_xabari(update):
-    tugma = [[InlineKeyboardButton(
-        "Guruhga qo'shiling",
-        url=GURUH_LINK
-    )]]
-    update.message.reply_text(
-        "Botdan to'liq foydalanish uchun avval guruhimizga qo'shiling!\n\n"
-        "Qo'shilgach, kitob nomini yozing.",
-        reply_markup=InlineKeyboardMarkup(tugma)
-    )
-
-# ===================== START =====================
-def start(update: Update, ctx: CallbackContext):
-    update.message.reply_text(
+async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
         "Kitoblar Olamiga xush kelibsiz!\n\n"
-        "Qidirmoqchi bo'lgan kitob nomini yozing.\n\n"
+        "Qidirmoqchi bolgan kitob nomini yozing.\n\n"
         "Masalan: Atomic Habits"
     )
 
-# ===================== KITOB QIDIRISH =====================
-def kitob_qidir(update: Update, ctx: CallbackContext):
-    user_id = update.message.from_user.id
-    matn = update.message.text.strip()
-
-    if admin_mi(user_id):
-        if ctx.user_data.get("holat") == "nom_kutish":
-            ctx.user_data["kitob_nom"] = matn
-            ctx.user_data["holat"] = "kategoriya_kutish"
-            tugmalar = [[InlineKeyboardButton(kat, callback_data=f"newkat_{kat}")] for kat in KATEGORIYALAR]
-            update.message.reply_text("Kategoriyani tanlang:", reply_markup=InlineKeyboardMarkup(tugmalar))
-            return
-
-    if not guruh_azosimi(ctx.bot, user_id):
-        guruhga_qoshiling_xabari(update)
-        return
-
-    kitoblar = kitoblar_yukla()
-    natijalar = [
-        (i, k) for i, k in enumerate(kitoblar)
-        if matn.lower() in k["nom"].lower()
-    ]
-
-    if not natijalar:
-        tugma = [[InlineKeyboardButton("Guruhga o'tish", url=GURUH_LINK)]]
-        update.message.reply_text(
-            f"'{matn}' kitob topilmadi.\n\n"
-            "Guruhimizdan qidiring, u yerda ko'proq kitoblar bor!",
-            reply_markup=InlineKeyboardMarkup(tugma)
-        )
-        return
-
-    tugmalar = [[InlineKeyboardButton(k["nom"], callback_data=f"kitob_{i}")] for i, k in natijalar]
-    update.message.reply_text(
-        f"'{matn}' bo'yicha natijalar:",
-        reply_markup=InlineKeyboardMarkup(tugmalar)
-    )
-
-# ===================== ADMIN =====================
-def admin_buyruq(update: Update, ctx: CallbackContext):
+async def admin_buyruq(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not admin_mi(update.message.from_user.id):
         return
-    update.message.reply_text(
+    await update.message.reply_text(
         "Admin panel\n\n"
-        "Kitob qo'shish uchun PDF yoki Audio fayl yuboring."
+        "Kitob qoshish uchun PDF yoki Audio fayl yuboring."
     )
 
-def fayl_qabul(update: Update, ctx: CallbackContext):
+async def fayl_qabul(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not admin_mi(update.message.from_user.id):
         return
     msg = update.message
@@ -126,22 +70,54 @@ def fayl_qabul(update: Update, ctx: CallbackContext):
         ctx.user_data["fayl_id"] = msg.audio.file_id
         ctx.user_data["fayl_tur"] = "audio"
     else:
-        msg.reply_text("Faqat PDF yoki Audio fayl yuboring.")
+        await msg.reply_text("Faqat PDF yoki Audio fayl yuboring.")
         return
     ctx.user_data["holat"] = "nom_kutish"
-    msg.reply_text("Fayl qabul qilindi! Kitob nomini yozing:")
+    await msg.reply_text("Fayl qabul qilindi! Kitob nomini yozing:")
 
-# ===================== CALLBACK =====================
-def callback_handler(update: Update, ctx: CallbackContext):
+async def matn_qabul(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    matn = update.message.text.strip()
+
+    if admin_mi(user_id) and ctx.user_data.get("holat") == "nom_kutish":
+        ctx.user_data["kitob_nom"] = matn
+        ctx.user_data["holat"] = "kategoriya_kutish"
+        tugmalar = [[InlineKeyboardButton(kat, callback_data=f"newkat_{kat}")] for kat in KATEGORIYALAR]
+        await update.message.reply_text("Kategoriyani tanlang:", reply_markup=InlineKeyboardMarkup(tugmalar))
+        return
+
+    if not await guruh_azosimi(ctx.bot, user_id):
+        tugma = [[InlineKeyboardButton("Guruhga qoshiling", url=GURUH_LINK)]]
+        await update.message.reply_text(
+            "Botdan toliq foydalanish uchun avval guruhimizga qoshiling!",
+            reply_markup=InlineKeyboardMarkup(tugma)
+        )
+        return
+
+    kitoblar = kitoblar_yukla()
+    natijalar = [(i, k) for i, k in enumerate(kitoblar) if matn.lower() in k["nom"].lower()]
+
+    if not natijalar:
+        tugma = [[InlineKeyboardButton("Guruhga otish", url=GURUH_LINK)]]
+        await update.message.reply_text(
+            f"'{matn}' kitob topilmadi.\nGuruhimizdan qidiring!",
+            reply_markup=InlineKeyboardMarkup(tugma)
+        )
+        return
+
+    tugmalar = [[InlineKeyboardButton(k["nom"], callback_data=f"kitob_{i}")] for i, k in natijalar]
+    await update.message.reply_text("Natijalar:", reply_markup=InlineKeyboardMarkup(tugmalar))
+
+async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     data = query.data
 
     if data.startswith("kitob_"):
         idx = int(data.replace("kitob_", ""))
         kitoblar = kitoblar_yukla()
         if idx >= len(kitoblar):
-            query.edit_message_text("Kitob topilmadi.")
+            await query.edit_message_text("Kitob topilmadi.")
             return
         k = kitoblar[idx]
         row = []
@@ -149,17 +125,16 @@ def callback_handler(update: Update, ctx: CallbackContext):
             row.append(InlineKeyboardButton("PDF yuklab ol", callback_data=f"pdf_{idx}"))
         if k.get("audio_id"):
             row.append(InlineKeyboardButton("Audio tingla", callback_data=f"audio_{idx}"))
-        tugmalar = [row]
-        query.edit_message_text(
-            f"{k['nom']}\nKategoriya: {k['kategoriya']}\nSana: {k['sana']}\n\nFormatni tanlang:",
-            reply_markup=InlineKeyboardMarkup(tugmalar)
+        await query.edit_message_text(
+            f"{k['nom']}\nKategoriya: {k['kategoriya']}\n\nFormatni tanlang:",
+            reply_markup=InlineKeyboardMarkup([row])
         )
 
     elif data.startswith("pdf_"):
         idx = int(data.replace("pdf_", ""))
         kitoblar = kitoblar_yukla()
         k = kitoblar[idx]
-        ctx.bot.send_document(
+        await ctx.bot.send_document(
             chat_id=query.message.chat_id,
             document=k["pdf_id"],
             caption=f"{k['nom']}\n{k['kategoriya']}\n\n@pdf_audio_kitobz"
@@ -169,7 +144,7 @@ def callback_handler(update: Update, ctx: CallbackContext):
         idx = int(data.replace("audio_", ""))
         kitoblar = kitoblar_yukla()
         k = kitoblar[idx]
-        ctx.bot.send_audio(
+        await ctx.bot.send_audio(
             chat_id=query.message.chat_id,
             audio=k["audio_id"],
             caption=f"{k['nom']}\n{k['kategoriya']}\n\n@pdf_audio_kitobz"
@@ -197,22 +172,17 @@ def callback_handler(update: Update, ctx: CallbackContext):
             })
         kitoblar_saqlа(kitoblar)
         ctx.user_data.clear()
-        query.edit_message_text(f"{nom} muvaffaqiyatli saqlandi!\nKategoriya: {kat}")
+        await query.edit_message_text(f"{nom} saqlandi! Kategoriya: {kat}")
 
-# ===================== ASOSIY =====================
 def main():
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("admin", admin_buyruq))
-    dp.add_handler(CallbackQueryHandler(callback_handler))
-    dp.add_handler(MessageHandler(Filters.document | Filters.audio, fayl_qabul))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, kitob_qidir))
-
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_buyruq))
+    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.AUDIO, fayl_qabul))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, matn_qabul))
     print("Bot ishga tushdi!")
-    updater.start_polling()
-    updater.idle()
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
