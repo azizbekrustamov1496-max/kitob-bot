@@ -8,7 +8,8 @@ from telegram.ext import (
     Updater, CommandHandler, MessageHandler,
     CallbackQueryHandler, Filters, CallbackContext
 )
-from apscheduler.schedulers.background import BackgroundScheduler
+import threading
+import time
 
 # ===================== SOZLAMALAR =====================
 BOT_TOKEN = "8636477180:AAGNTGfnkST5uM4SdUuzNV3NCZcYIigkqk4"
@@ -40,15 +41,14 @@ def admin_mi(user_id):
 
 def start(update: Update, ctx: CallbackContext):
     tugmalar = [
-        [InlineKeyboardButton("📚 Barcha kitoblar", callback_data="barchasi")],
-        [InlineKeyboardButton("🔍 Kategoriya", callback_data="kategoriya")],
-        [InlineKeyboardButton("🆕 Oxirgi kitoblar", callback_data="oxirgi")],
+        [InlineKeyboardButton("Barcha kitoblar", callback_data="barchasi")],
+        [InlineKeyboardButton("Kategoriya", callback_data="kategoriya")],
+        [InlineKeyboardButton("Oxirgi kitoblar", callback_data="oxirgi")],
     ]
     update.message.reply_text(
-        "📚 *Kitoblar Olamiga xush kelibsiz!*\n\n"
+        "Kitoblar Olamiga xush kelibsiz!\n\n"
         "PDF va Audio kitoblarni bepul yuklab oling.\n\n"
-        "Quyidagi bo'limlardan birini tanlang 👇",
-        parse_mode="Markdown",
+        "Quyidagi bo'limlardan birini tanlang:",
         reply_markup=InlineKeyboardMarkup(tugmalar)
     )
 
@@ -56,12 +56,11 @@ def admin_buyruq(update: Update, ctx: CallbackContext):
     if not admin_mi(update.message.from_user.id):
         return
     update.message.reply_text(
-        "👨\u200d💼 *Admin panel*\n\n"
-        "Kitob qo'shish:\n"
-        "1️⃣ PDF yoki Audio fayl yuboring\n"
-        "2️⃣ Kitob nomini yozing\n"
-        "3️⃣ Kategoriya tanlang",
-        parse_mode="Markdown"
+        "Admin panel\n\n"
+        "Kitob qoshish:\n"
+        "1. PDF yoki Audio fayl yuboring\n"
+        "2. Kitob nomini yozing\n"
+        "3. Kategoriya tanlang"
     )
 
 def fayl_qabul(update: Update, ctx: CallbackContext):
@@ -70,19 +69,19 @@ def fayl_qabul(update: Update, ctx: CallbackContext):
     msg = update.message
     fayl_id = None
     fayl_tur = None
-    if msg.document and msg.document.mime_type == "application/pdf":
+    if msg.document:
         fayl_id = msg.document.file_id
         fayl_tur = "pdf"
     elif msg.audio:
         fayl_id = msg.audio.file_id
         fayl_tur = "audio"
     else:
-        msg.reply_text("Faqat PDF yoki Audio yuboring.")
+        msg.reply_text("Faqat PDF yoki Audio fayl yuboring.")
         return
     ctx.user_data["fayl_id"] = fayl_id
     ctx.user_data["fayl_tur"] = fayl_tur
     ctx.user_data["holat"] = "nom_kutish"
-    msg.reply_text(f"✅ {'PDF' if fayl_tur == 'pdf' else 'Audio'} qabul qilindi!\n\n📝 Kitob nomini yozing:")
+    msg.reply_text("Fayl qabul qilindi! Kitob nomini yozing:")
 
 def matn_qabul(update: Update, ctx: CallbackContext):
     if not admin_mi(update.message.from_user.id):
@@ -91,8 +90,8 @@ def matn_qabul(update: Update, ctx: CallbackContext):
         return
     ctx.user_data["kitob_nom"] = update.message.text
     ctx.user_data["holat"] = "kategoriya_kutish"
-    tugmalar = [[InlineKeyboardButton(f"📂 {kat}", callback_data=f"newkat_{kat}")] for kat in KATEGORIYALAR]
-    update.message.reply_text("📂 Kategoriyani tanlang:", reply_markup=InlineKeyboardMarkup(tugmalar))
+    tugmalar = [[InlineKeyboardButton(kat, callback_data=f"newkat_{kat}")] for kat in KATEGORIYALAR]
+    update.message.reply_text("Kategoriyani tanlang:", reply_markup=InlineKeyboardMarkup(tugmalar))
 
 def callback_handler(update: Update, ctx: CallbackContext):
     query = update.callback_query
@@ -102,66 +101,61 @@ def callback_handler(update: Update, ctx: CallbackContext):
     if data == "barchasi":
         kitoblar = kitoblar_yukla()
         if not kitoblar:
-            query.edit_message_text("📭 Hozircha kitoblar yo'q.")
+            query.edit_message_text("Hozircha kitoblar yoq.")
             return
-        tugmalar = [[InlineKeyboardButton(f"📖 {k['nom']}", callback_data=f"kitob_{i}")] for i, k in enumerate(kitoblar)]
-        tugmalar.append([InlineKeyboardButton("🔙 Orqaga", callback_data="start")])
-        query.edit_message_text("📚 *Barcha kitoblar:*", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(tugmalar))
+        tugmalar = [[InlineKeyboardButton(k['nom'], callback_data=f"kitob_{i}")] for i, k in enumerate(kitoblar)]
+        tugmalar.append([InlineKeyboardButton("Orqaga", callback_data="start")])
+        query.edit_message_text("Barcha kitoblar:", reply_markup=InlineKeyboardMarkup(tugmalar))
 
     elif data == "kategoriya":
-        tugmalar = [[InlineKeyboardButton(f"📂 {kat}", callback_data=f"kat_{kat}")] for kat in KATEGORIYALAR]
-        tugmalar.append([InlineKeyboardButton("🔙 Orqaga", callback_data="start")])
-        query.edit_message_text("📂 *Kategoriyani tanlang:*", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(tugmalar))
+        tugmalar = [[InlineKeyboardButton(kat, callback_data=f"kat_{kat}")] for kat in KATEGORIYALAR]
+        tugmalar.append([InlineKeyboardButton("Orqaga", callback_data="start")])
+        query.edit_message_text("Kategoriyani tanlang:", reply_markup=InlineKeyboardMarkup(tugmalar))
 
     elif data == "oxirgi":
         kitoblar = kitoblar_yukla()
         if not kitoblar:
-            query.edit_message_text("📭 Hozircha kitoblar yo'q.")
+            query.edit_message_text("Hozircha kitoblar yoq.")
             return
         oxirgi = list(enumerate(kitoblar))[-5:][::-1]
-        tugmalar = [[InlineKeyboardButton(f"📖 {k['nom']}", callback_data=f"kitob_{i}")] for i, k in oxirgi]
-        tugmalar.append([InlineKeyboardButton("🔙 Orqaga", callback_data="start")])
-        query.edit_message_text("🆕 *Oxirgi kitoblar:*", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(tugmalar))
+        tugmalar = [[InlineKeyboardButton(k['nom'], callback_data=f"kitob_{i}")] for i, k in oxirgi]
+        tugmalar.append([InlineKeyboardButton("Orqaga", callback_data="start")])
+        query.edit_message_text("Oxirgi kitoblar:", reply_markup=InlineKeyboardMarkup(tugmalar))
 
     elif data == "start":
         tugmalar = [
-            [InlineKeyboardButton("📚 Barcha kitoblar", callback_data="barchasi")],
-            [InlineKeyboardButton("🔍 Kategoriya", callback_data="kategoriya")],
-            [InlineKeyboardButton("🆕 Oxirgi kitoblar", callback_data="oxirgi")],
+            [InlineKeyboardButton("Barcha kitoblar", callback_data="barchasi")],
+            [InlineKeyboardButton("Kategoriya", callback_data="kategoriya")],
+            [InlineKeyboardButton("Oxirgi kitoblar", callback_data="oxirgi")],
         ]
-        query.edit_message_text(
-            "📚 *Kitoblar Olamiga xush kelibsiz!*\n\nQuyidagi bo'limlardan birini tanlang 👇",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(tugmalar)
-        )
+        query.edit_message_text("Quyidagi bolimlardan birini tanlang:", reply_markup=InlineKeyboardMarkup(tugmalar))
 
     elif data.startswith("kat_"):
         kat = data.replace("kat_", "")
         kitoblar = kitoblar_yukla()
         kat_list = [(i, k) for i, k in enumerate(kitoblar) if k["kategoriya"] == kat]
         if not kat_list:
-            query.edit_message_text(f"📭 {kat} kategoriyasida kitob yo'q.")
+            query.edit_message_text(f"{kat} kategoriyasida kitob yoq.")
             return
-        tugmalar = [[InlineKeyboardButton(f"📖 {k['nom']}", callback_data=f"kitob_{i}")] for i, k in kat_list]
-        tugmalar.append([InlineKeyboardButton("🔙 Orqaga", callback_data="kategoriya")])
-        query.edit_message_text(f"📂 *{kat}:*", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(tugmalar))
+        tugmalar = [[InlineKeyboardButton(k['nom'], callback_data=f"kitob_{i}")] for i, k in kat_list]
+        tugmalar.append([InlineKeyboardButton("Orqaga", callback_data="kategoriya")])
+        query.edit_message_text(f"{kat} kitoblari:", reply_markup=InlineKeyboardMarkup(tugmalar))
 
     elif data.startswith("kitob_"):
         idx = int(data.replace("kitob_", ""))
         kitoblar = kitoblar_yukla()
         if idx >= len(kitoblar):
-            query.edit_message_text("❌ Kitob topilmadi.")
+            query.edit_message_text("Kitob topilmadi.")
             return
         k = kitoblar[idx]
         row = []
         if k.get("pdf_id"):
-            row.append(InlineKeyboardButton("📄 PDF", callback_data=f"pdf_{idx}"))
+            row.append(InlineKeyboardButton("PDF yuklab ol", callback_data=f"pdf_{idx}"))
         if k.get("audio_id"):
-            row.append(InlineKeyboardButton("🎧 Audio", callback_data=f"audio_{idx}"))
-        tugmalar = [row, [InlineKeyboardButton("🔙 Orqaga", callback_data="barchasi")]]
+            row.append(InlineKeyboardButton("Audio tingla", callback_data=f"audio_{idx}"))
+        tugmalar = [row, [InlineKeyboardButton("Orqaga", callback_data="barchasi")]]
         query.edit_message_text(
-            f"📖 *{k['nom']}*\n📂 {k['kategoriya']}\n📅 {k['sana']}\n\nFormatni tanlang 👇",
-            parse_mode="Markdown",
+            f"{k['nom']}\nKategoriya: {k['kategoriya']}\nSana: {k['sana']}\n\nFormatni tanlang:",
             reply_markup=InlineKeyboardMarkup(tugmalar)
         )
 
@@ -172,8 +166,7 @@ def callback_handler(update: Update, ctx: CallbackContext):
         ctx.bot.send_document(
             chat_id=query.message.chat_id,
             document=k["pdf_id"],
-            caption=f"📄 *{k['nom']}*\n📂 {k['kategoriya']}\n\n📚 @pdf_audio_kitobz",
-            parse_mode="Markdown"
+            caption=f"{k['nom']}\n{k['kategoriya']}\n\n@pdf_audio_kitobz"
         )
 
     elif data.startswith("audio_"):
@@ -183,8 +176,7 @@ def callback_handler(update: Update, ctx: CallbackContext):
         ctx.bot.send_audio(
             chat_id=query.message.chat_id,
             audio=k["audio_id"],
-            caption=f"🎧 *{k['nom']}*\n📂 {k['kategoriya']}\n\n📚 @pdf_audio_kitobz",
-            parse_mode="Markdown"
+            caption=f"{k['nom']}\n{k['kategoriya']}\n\n@pdf_audio_kitobz"
         )
 
     elif data.startswith("newkat_") and admin_mi(query.from_user.id):
@@ -209,27 +201,28 @@ def callback_handler(update: Update, ctx: CallbackContext):
             })
         kitoblar_saqlа(kitoblar)
         ctx.user_data.clear()
-        query.edit_message_text(f"✅ *{nom}* saqlandi!\n📂 {kat}", parse_mode="Markdown")
+        query.edit_message_text(f"{nom} saqlandi! Kategoriya: {kat}")
 
 def soatlik_yuborish(bot):
-    kitoblar = kitoblar_yukla()
-    if not kitoblar:
-        return
-    k = random.choice(kitoblar)
-    matn = (
-        f"📚 *{k['nom']}*\n"
-        f"📂 Kategoriya: {k['kategoriya']}\n\n"
-        f"📥 Kitobni olish uchun botga yozing:\n"
-        f"👉 @KitobxonUz_bot\n\n"
-        f"#kitob #bepulkitob #pdf #audiokitob"
-    )
-    try:
-        if k.get("pdf_id"):
-            bot.send_document(chat_id=KANAL, document=k["pdf_id"], caption=matn, parse_mode="Markdown")
-        elif k.get("audio_id"):
-            bot.send_audio(chat_id=KANAL, audio=k["audio_id"], caption=matn, parse_mode="Markdown")
-    except Exception as e:
-        log.error(f"Xato: {e}")
+    while True:
+        time.sleep(3600)
+        kitoblar = kitoblar_yukla()
+        if not kitoblar:
+            continue
+        k = random.choice(kitoblar)
+        matn = (
+            f"{k['nom']}\n"
+            f"Kategoriya: {k['kategoriya']}\n\n"
+            f"Kitobni olish uchun botga yozing\n\n"
+            f"#kitob #bepulkitob #pdf #audiokitob"
+        )
+        try:
+            if k.get("pdf_id"):
+                bot.send_document(chat_id=KANAL, document=k["pdf_id"], caption=matn)
+            elif k.get("audio_id"):
+                bot.send_audio(chat_id=KANAL, audio=k["audio_id"], caption=matn)
+        except Exception as e:
+            log.error(f"Xato: {e}")
 
 def main():
     updater = Updater(BOT_TOKEN, use_context=True)
@@ -241,9 +234,8 @@ def main():
     dp.add_handler(MessageHandler(Filters.document | Filters.audio, fayl_qabul))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, matn_qabul))
 
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(soatlik_yuborish, "interval", hours=1, args=[updater.bot])
-    scheduler.start()
+    t = threading.Thread(target=soatlik_yuborish, args=[updater.bot], daemon=True)
+    t.start()
 
     print("Bot ishga tushdi!")
     updater.start_polling()
